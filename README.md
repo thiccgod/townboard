@@ -7,8 +7,8 @@ only tested on windows 10, 1920x1080, and default brightness/contrast
 ```
 clone opencv & opencv-contrib and build w/ mingw64
 
-https://github.com/UB-Mannheim/tesseract/wiki
 get tesseract-OCR and add to system path
+https://github.com/UB-Mannheim/tesseract/wiki
 
 git clone https://github.com/thiccgod/townboard.git
 
