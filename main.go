@@ -218,17 +218,17 @@ func generateTownCoordinates() {
 	if _, err := os.Stat(f); os.IsNotExist(err) {
 		WorldMap := make(map[Point]Town)
 
+		WorldMap[Point{X: 10000, Y: 7000}] = Brightwood
 		WorldMap[Point{X: 8000, Y: 2000}] = CutlassKeys
-		WorldMap[Point{X: 8000, Y: 4000}] = MonarchsBluff
 		WorldMap[Point{X: 8000, Y: 6000}] = EbonscaleReach
 		WorldMap[Point{X: 9000, Y: 5000}] = Everfall
 		WorldMap[Point{X: 9000, Y: 1000}] = FirstLight
-		WorldMap[Point{X: 10000, Y: 3000}] = Windsward
-		WorldMap[Point{X: 10000, Y: 7000}] = Brightwood
-		WorldMap[Point{X: 11000, Y: 4000}] = Reekwater
-		WorldMap[Point{X: 12000, Y: 6000}] = WeaversFen
-		WorldMap[Point{X: 13000, Y: 5000}] = RestlessShore
+		WorldMap[Point{X: 8000, Y: 4000}] = MonarchsBluff
 		WorldMap[Point{X: 14000, Y: 7000}] = Mourningdale
+		WorldMap[Point{X: 11000, Y: 4000}] = Reekwater
+		WorldMap[Point{X: 13000, Y: 5000}] = RestlessShore
+		WorldMap[Point{X: 10000, Y: 3000}] = Windsward
+		WorldMap[Point{X: 12000, Y: 6000}] = WeaversFen
 
 		file, err := os.Create(f)
 		defer file.Close()
@@ -242,17 +242,17 @@ func generateTownCoordinates() {
 	}
 }
 
-func buildTownMap(s *State) map[Town][]Quest {
-	var local = make(map[Town][]Quest)
-	for _, x := range s.Data {
-		if _, ok := local[x.Location]; ok {
-			local[x.Location] = append(local[x.Location], x.Quest)
-		} else {
-			local[x.Location] = []Quest{x.Quest}
-		}
-	}
-	return local
-}
+// func buildTownMap(s *State) map[Town][]Quest {
+// 	var local = make(map[Town][]Quest)
+// 	for _, x := range s.Data {
+// 		if _, ok := local[x.Location]; ok {
+// 			local[x.Location] = append(local[x.Location], x.Quest)
+// 		} else {
+// 			local[x.Location] = []Quest{x.Quest}
+// 		}
+// 	}
+// 	return local
+// }
 
 func loadState(ch chan<- Acc) {
 	f := fmt.Sprintf("%s\\%s", FolderPath, StateFileName)
@@ -373,14 +373,25 @@ func generateCardIndex() {
 	}
 }
 
-func tesseract(path string) string {
+func tesseract(path string, enablePsm bool) string {
 	config := "-c"
 	ConfigOptions := "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
 
 	dpi := "--dpi"
-	DpiOptions := "300"
-	t, _ := exec.LookPath(__TESSERACT_EXE)
+	DpiOptions := "1200"
+
+	var psm string
+	var psmOptions string
+
 	args := []string{path, "stdout", config, ConfigOptions, dpi, DpiOptions}
+	if enablePsm {
+		psm = "--psm"
+		psmOptions = "6"
+		args = append(args, psm)
+		args = append(args, psmOptions)
+	}
+
+	t, _ := exec.LookPath(__TESSERACT_EXE)
 	cmd := exec.Command(t, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -399,7 +410,7 @@ func tesseract(path string) string {
 }
 
 func handleData(path string, ch chan<- Quest) {
-	s := tesseract(path)
+	s := tesseract(path, true)
 	MatchTaskRegex := regexp.MustCompile(`([A-Z][a-z].*) ([A-Z]{1}[a-z]{1}\w+)`)
 	matches := MatchTaskRegex.FindAllString(s, -1)
 	data := strings.Join(matches[:], " ")
@@ -411,8 +422,8 @@ func handleData(path string, ch chan<- Quest) {
 	ch <- Quest{Job, Quantity}
 }
 
-func handlePosition(path string, ch chan<- Town) {
-	s := tesseract(path)
+func handlePosition(path string) Town {
+	s := tesseract(path, false)
 	MatchPositionRegex := regexp.MustCompile(`(Position \d+\s+\d+\s\d+)`)
 	pos := MatchPositionRegex.FindString(s)
 	var PositionPrecision float64 = 1000.000
@@ -430,7 +441,6 @@ func handlePosition(path string, ch chan<- Town) {
 		}
 	}
 	CurrentPosition = Point{X: int(x), Y: int(y)}
-	log("current pos %s", CurrentPosition)
 
 	w := make(map[Point]Town)
 	mapData, _ := os.Open(WorldMapFilePath)
@@ -439,11 +449,11 @@ func handlePosition(path string, ch chan<- Town) {
 	decoder := gob.NewDecoder(mapData)
 	decoder.Decode(&w)
 
-	fmt.Println(CurrentPosition.X, CurrentPosition.Y)
+	// os.Remove(path)
 	if !(CurrentPosition.X == 0 && CurrentPosition.Y == 0) {
 		CurrentPos = CurrentPosition
-		ch <- w[CurrentPosition]
 	}
+	return w[CurrentPosition]
 }
 
 func cleanup(path string) {
@@ -458,8 +468,7 @@ func cleanup(path string) {
 }
 
 func run(ch chan<- Acc) {
-	pc := make(chan Town)
-	dc := make(chan Quest, NumColumns*ItemsPerRow)
+	qc := make(chan Quest, NumColumns*ItemsPerRow)
 
 	img := gocv.IMRead(__SCREENSHOT, gocv.IMReadColor)
 
@@ -472,20 +481,30 @@ func run(ch chan<- Acc) {
 	defer blurry.Close()
 	sharp := gocv.NewMat()
 	defer sharp.Close()
-	gocv.GaussianBlur(text, &blurry, image.Pt(1, 1), 0, 0, gocv.BorderWrap)
+
+	gocv.GaussianBlur(text, &blurry, image.Pt(15, 15), 0, 0, gocv.BorderWrap)
 	gocv.AddWeighted(text, 2, blurry, 0, 0, &sharp)
-	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(5, 5))
-	defer kernel.Close()
+
+	// gocv.Threshold(sharp, &sharp, 220, 255, gocv.ThresholdBinary+gocv.ThresholdOtsu)
+	// gocv.MedianBlur(sharp, &sharp, 1)
+
 	m := gocv.NewMat()
 	defer m.Close()
 	mInv := gocv.NewMat()
 	defer mInv.Close()
 	gocv.InRange(sharp,
 		gocv.NewMatFromScalar(gocv.NewScalar(0.0, 0.0, 0.0, 0.0), gocv.MatTypeCV8UC3),
-		gocv.NewMatFromScalar(gocv.NewScalar(200.0, 200.0, 200.0, 0.0), gocv.MatTypeCV8UC3),
+		gocv.NewMatFromScalar(gocv.NewScalar(180.0, 180.0, 180.0, 0.0), gocv.MatTypeCV8UC3),
 		&m)
 	gocv.BitwiseNot(m, &mInv)
 	gocv.BitwiseAnd(sharp, mInv, &sharp)
+
+	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
+	defer kernel.Close()
+	// gocv.MorphologyEx(sharp, &sharp, gocv.MorphOpen, kernel)
+	// gocv.MorphologyEx(sharp, &sharp, gocv.MorphClose, kernel)
+	gocv.Dilate(sharp, &sharp, kernel)
+	// gocv.Erode(sharp, &sharp, kernel)
 
 	// contour finding
 	hsv := gocv.NewMatWithSize(1920, 1080, gocv.MatTypeCV8U)
@@ -520,15 +539,22 @@ func run(ch chan<- Acc) {
 	defer position.Close()
 
 	const ResizedPositionHeight = 80
-	const ResizedPositionWidth = 1400
+	const ResizedPositionWidth = 1800
 
 	roi := image.Rect(TargetWidth, TargetHeight, ResolutionWidth, ResolutionHeight)
 	pos := sharp.Region(roi)
+	black := color.RGBA{B: 0, G: 0, R: 0}
+	padding := 35
 	gocv.Resize(pos, &position, image.Pt(ResizedPositionWidth, ResizedPositionHeight), 0, 0, gocv.InterpolationArea)
+	gocv.CopyMakeBorder(position, &position, padding, padding, padding, padding, gocv.BorderConstant, black)
+
+	dilationKernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
+	defer dilationKernel.Close()
+	gocv.Dilate(sharp, &sharp, dilationKernel)
 	f := fmt.Sprintf("%s\\%s.jpeg", FolderPath, "position")
 	gocv.IMWrite(f, position)
 	p := Task{__type: PositionTask, ImagePath: f}
-	go handlePosition(p.ImagePath, pc)
+	CurrentTown = handlePosition(p.ImagePath)
 
 	b := Board{}
 	boardData, _ := os.Open(BoardFilePath)
@@ -549,6 +575,8 @@ func run(ch chan<- Acc) {
 
 	// 0 1 2 3 4  5
 	// 6 7 8 9 10 11
+
+	fmt.Println(CurrentPos, CurrentTown)
 
 	if CurrentPos.X == 0 && CurrentPos.Y == 0 {
 		return
@@ -579,37 +607,42 @@ func run(ch chan<- Acc) {
 					data.Accepted = true
 					cropped := sharp.Region(rect)
 					res := cropped.Clone()
+					defer res.Close()
+					gocv.Resize(res, &res, image.Pt(3*rect.Dx(), 3*rect.Dy()), 0, 0, gocv.InterpolationArea)
+					gocv.GaussianBlur(res, &res, image.Pt(13, 13), 0, 0, gocv.BorderWrap)
+					gocv.AddWeighted(res, 2, res, 0, 0, &res)
+					cropped = res.Region(image.Rect(0, 100, 3*rect.Dx(), 390))
+					// gocv.CopyMakeBorder(cropped, &cropped, 100, 100, 100, 100, gocv.BorderConstant, black)
 					f := fmt.Sprintf("%s\\%d.jpeg", FolderPath, data.Index)
 					data.ImagePath = f
-					gocv.IMWrite(f, res)
+					gocv.IMWrite(f, cropped)
 				}
 			}
 			uniq[itr] = data
 		}
 	}
+	os.Remove(__SCREENSHOT)
 	count := 0
 	localState := State{}
 	for _, x := range uniq {
 		if x.Accepted {
 			count++
-			go handleData(x.ImagePath, dc)
+			go handleData(x.ImagePath, qc)
 		}
 	}
 	for {
 		select {
-		case m1 := <-pc:
-			CurrentTown = m1
-		case m2 := <-dc:
+		case m := <-qc:
 			{
-				t := TurnIn{Location: CurrentTown, Quest: m2}
+				t := TurnIn{Location: CurrentTown, Quest: m}
 				localState.Data = append(localState.Data, t)
 				if len(localState.Data) == count {
+					// cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
 					purged := purge(CurrentTown)
 					state.Data = purged
-					townMap = buildTownMap(&localState)
+					// townMap = buildTownMap(&localState)
 					state = *saveState(localState)
 					acc = *generateAggregate(state)
-					fmt.Println("ACC", acc)
 					ch <- acc
 				}
 			}
@@ -681,7 +714,6 @@ func main() {
 
 	u := make(chan Acc)
 	w := make(chan int)
-	cc := make(chan bool)
 
 	count := 0
 
@@ -697,9 +729,6 @@ func main() {
 			case <-c:
 				log("CYA")
 				os.Exit(0)
-			case <-cc:
-				os.Remove(__SCREENSHOT)
-				cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
 			case <-w:
 				go func() {
 					log("sup")
