@@ -528,9 +528,6 @@ func run(ch chan<- Acc) {
 	padding := 35
 	gocv.Resize(pos, &position, image.Pt(ResizedPositionWidth, ResizedPositionHeight), 0, 0, gocv.InterpolationArea)
 	gocv.CopyMakeBorder(position, &position, padding, padding, padding, padding, gocv.BorderConstant, black)
-
-	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
-	defer kernel.Close()
 	gocv.Dilate(sharp, &sharp, kernel)
 	f := fmt.Sprintf("%s\\%s.jpeg", FolderPath, "position")
 	gocv.IMWrite(f, position)
