@@ -147,7 +147,6 @@ type Acc struct {
 
 var items = []TurnIn{}
 var state = State{items}
-var townMap = make(map[Town][]Quest)
 var acc = Acc{}
 
 // New create new session
@@ -241,18 +240,6 @@ func generateTownCoordinates() {
 		}
 	}
 }
-
-// func buildTownMap(s *State) map[Town][]Quest {
-// 	var local = make(map[Town][]Quest)
-// 	for _, x := range s.Data {
-// 		if _, ok := local[x.Location]; ok {
-// 			local[x.Location] = append(local[x.Location], x.Quest)
-// 		} else {
-// 			local[x.Location] = []Quest{x.Quest}
-// 		}
-// 	}
-// 	return local
-// }
 
 func loadState(ch chan<- Acc) {
 	f := fmt.Sprintf("%s\\%s", FolderPath, StateFileName)
@@ -449,7 +436,7 @@ func handlePosition(path string) Town {
 	decoder := gob.NewDecoder(mapData)
 	decoder.Decode(&w)
 
-	// os.Remove(path)
+	os.Remove(path)
 	if !(CurrentPosition.X == 0 && CurrentPosition.Y == 0) {
 		CurrentPos = CurrentPosition
 	}
@@ -485,9 +472,6 @@ func run(ch chan<- Acc) {
 	gocv.GaussianBlur(text, &blurry, image.Pt(15, 15), 0, 0, gocv.BorderWrap)
 	gocv.AddWeighted(text, 2, blurry, 0, 0, &sharp)
 
-	// gocv.Threshold(sharp, &sharp, 220, 255, gocv.ThresholdBinary+gocv.ThresholdOtsu)
-	// gocv.MedianBlur(sharp, &sharp, 1)
-
 	m := gocv.NewMat()
 	defer m.Close()
 	mInv := gocv.NewMat()
@@ -501,10 +485,7 @@ func run(ch chan<- Acc) {
 
 	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
 	defer kernel.Close()
-	// gocv.MorphologyEx(sharp, &sharp, gocv.MorphOpen, kernel)
-	// gocv.MorphologyEx(sharp, &sharp, gocv.MorphClose, kernel)
 	gocv.Dilate(sharp, &sharp, kernel)
-	// gocv.Erode(sharp, &sharp, kernel)
 
 	// contour finding
 	hsv := gocv.NewMatWithSize(1920, 1080, gocv.MatTypeCV8U)
@@ -548,9 +529,9 @@ func run(ch chan<- Acc) {
 	gocv.Resize(pos, &position, image.Pt(ResizedPositionWidth, ResizedPositionHeight), 0, 0, gocv.InterpolationArea)
 	gocv.CopyMakeBorder(position, &position, padding, padding, padding, padding, gocv.BorderConstant, black)
 
-	dilationKernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
-	defer dilationKernel.Close()
-	gocv.Dilate(sharp, &sharp, dilationKernel)
+	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
+	defer kernel.Close()
+	gocv.Dilate(sharp, &sharp, kernel)
 	f := fmt.Sprintf("%s\\%s.jpeg", FolderPath, "position")
 	gocv.IMWrite(f, position)
 	p := Task{__type: PositionTask, ImagePath: f}
@@ -612,7 +593,6 @@ func run(ch chan<- Acc) {
 					gocv.GaussianBlur(res, &res, image.Pt(13, 13), 0, 0, gocv.BorderWrap)
 					gocv.AddWeighted(res, 2, res, 0, 0, &res)
 					cropped = res.Region(image.Rect(0, 100, 3*rect.Dx(), 390))
-					// gocv.CopyMakeBorder(cropped, &cropped, 100, 100, 100, 100, gocv.BorderConstant, black)
 					f := fmt.Sprintf("%s\\%d.jpeg", FolderPath, data.Index)
 					data.ImagePath = f
 					gocv.IMWrite(f, cropped)
@@ -637,10 +617,9 @@ func run(ch chan<- Acc) {
 				t := TurnIn{Location: CurrentTown, Quest: m}
 				localState.Data = append(localState.Data, t)
 				if len(localState.Data) == count {
-					// cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
+					cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
 					purged := purge(CurrentTown)
 					state.Data = purged
-					// townMap = buildTownMap(&localState)
 					state = *saveState(localState)
 					acc = *generateAggregate(state)
 					ch <- acc
