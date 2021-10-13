@@ -45,6 +45,7 @@ const (
 
 var (
 	CurrentTown      Town
+	CurrentPos       Point
 	__SCREENSHOT     = ""
 	BoardFilePath    = ""
 	BoardFileName    = "board.gob"
@@ -440,6 +441,7 @@ func handlePosition(path string, ch chan<- Town) {
 
 	fmt.Println(CurrentPosition.X, CurrentPosition.Y)
 	if !(CurrentPosition.X == 0 && CurrentPosition.Y == 0) {
+		CurrentPos = CurrentPosition
 		ch <- w[CurrentPosition]
 	}
 }
@@ -548,6 +550,10 @@ func run(ch chan<- Acc) {
 	// 0 1 2 3 4  5
 	// 6 7 8 9 10 11
 
+	if CurrentPos.X == 0 && CurrentPos.Y == 0 {
+		return
+	}
+
 	for i := 0; i < contours.Size(); i++ {
 		rect := gocv.BoundingRect(contours.At(i))
 		area := gocv.ContourArea(contours.At(i))
@@ -595,7 +601,6 @@ func run(ch chan<- Acc) {
 			CurrentTown = m1
 		case m2 := <-dc:
 			{
-				os.Remove(__SCREENSHOT)
 				t := TurnIn{Location: CurrentTown, Quest: m2}
 				localState.Data = append(localState.Data, t)
 				if len(localState.Data) == count {
@@ -613,7 +618,7 @@ func run(ch chan<- Acc) {
 }
 
 func buildLabel(text string) *g.TreeTableRowWidget {
-	return g.TreeTableRow(text)
+	return g.TreeTableRow(text).Flags(g.TreeNodeFlagsDefaultOpen)
 }
 
 func buildDataTree() *g.TreeTableWidget {
@@ -676,6 +681,7 @@ func main() {
 
 	u := make(chan Acc)
 	w := make(chan int)
+	cc := make(chan bool)
 
 	count := 0
 
@@ -691,6 +697,9 @@ func main() {
 			case <-c:
 				log("CYA")
 				os.Exit(0)
+			case <-cc:
+				os.Remove(__SCREENSHOT)
+				cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
 			case <-w:
 				go func() {
 					log("sup")
@@ -698,7 +707,6 @@ func main() {
 				}()
 			case msg := <-u:
 				{
-					// cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
 					fmt.Println("HERE", msg)
 				}
 			}
@@ -708,15 +716,15 @@ func main() {
 	wnd.Run(func() {
 		g.SingleWindow().Layout(
 			buildDataTree(),
-				g.Button("update").OnClick(func() {
-					if len(FolderPath) > 0 {
-						ps := NewPowerShell()
-						__SCREENSHOT = fmt.Sprintf("%s\\%s", FolderPath, FileName)
-						stdOut, stdErr, err := ps.execute(screenshot(__SCREENSHOT))
-						log("\n %s \n %s \n %s ", strings.TrimSpace(stdOut), stdErr, err)
-						count++
-						w <- count
-					}
-				})),
+			g.Button("update").OnClick(func() {
+				if len(FolderPath) > 0 {
+					ps := NewPowerShell()
+					__SCREENSHOT = fmt.Sprintf("%s\\%s", FolderPath, FileName)
+					stdOut, stdErr, err := ps.execute(screenshot(__SCREENSHOT))
+					log("\n %s \n %s \n %s ", strings.TrimSpace(stdOut), stdErr, err)
+					count++
+					w <- count
+				}
+			}))
 	})
 }
