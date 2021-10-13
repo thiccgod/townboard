@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -13,37 +14,38 @@ type logger struct {
 
 type event struct {
 	logger *logger
-	msg string
+	format string
+	args   []interface{}
 }
 
-type void struct {}
+type void struct{}
 
 var loggerInstance *logger
 var once sync.Once
 
 func getInstance() *logger {
-	once.Do(func () {
+	once.Do(func() {
 		loggerInstance = _logger()
-  })
+	})
 	return loggerInstance
 }
 
 func _logger() *logger {
 	var z zerolog.Logger
-  zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	z = zerolog.New(os.Stdout).With().Timestamp().Logger()
-	l := &logger { Logger: &z, }
+	l := &logger{Logger: &z}
 	return l
 }
 
 func log(e event) *void {
-	e.logger.Info().Msg(e.msg)
+	e.logger.Info().Msg(fmt.Sprintf(e.format, e.args...))
 	return &void{}
 }
 
-func Logger () func(string) *void {
+func Logger() func(string, ...interface{}) *void {
 	logger := getInstance()
-	return func (msg string) *void {
-		return log(event{ logger, msg })
+	return func(format string, args ...interface{}) *void {
+		return log(event{logger, format, args})
 	}
 }
