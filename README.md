@@ -1,11 +1,13 @@
 # townboard
 ![image](https://user-images.githubusercontent.com/91354035/137077526-90ff9ddd-89d7-4d15-aa86-36705667e813.png)
 ```
-only tested on 1920x1080, default brightness/contrast
+only tested on windows 10, 1920x1080, and default brightness/contrast
 ```
 # build
 ```
 clone opencv & opencv-contrib and build w/ mingw64
+
+https://github.com/UB-Mannheim/tesseract/wiki
 get tesseract-OCR and add to system path
 
 git clone https://github.com/thiccgod/townboard.git
