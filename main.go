@@ -26,7 +26,7 @@ import (
 
 const (
 	__POWERSHELL_EXE = "powershell.exe"
-	__TESSERACT_EXE  = "tesseract.exe"
+	__TESSERACT_EXE  = "./bin/tesseract.exe"
 	MinimumArea      = 55000
 	MaximumArea      = 90000
 	MinimumHeight    = 0
@@ -360,10 +360,14 @@ func generateCardIndex() {
 	}
 }
 
-func tesseract(path string, enablePsm bool) string {
+func tesseract(path string, enablePsm bool, numbersOnly bool) string {
 	config := "-c"
-	ConfigOptions := "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
-
+	DefaultConfigOptions := "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
+	NumbersOnlyConfigOptions := "tessedit_char_whitelist=0123456789 "
+	ConfigOptions := DefaultConfigOptions
+	if numbersOnly {
+		ConfigOptions = NumbersOnlyConfigOptions
+	}
 	dpi := "--dpi"
 	DpiOptions := "1200"
 
@@ -378,8 +382,7 @@ func tesseract(path string, enablePsm bool) string {
 		args = append(args, psmOptions)
 	}
 
-	t, _ := exec.LookPath(__TESSERACT_EXE)
-	cmd := exec.Command(t, args...)
+	cmd := exec.Command(__TESSERACT_EXE, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -397,7 +400,7 @@ func tesseract(path string, enablePsm bool) string {
 }
 
 func handleData(path string, ch chan<- Quest) {
-	s := tesseract(path, true)
+	s := tesseract(path, true, false)
 	MatchTaskRegex := regexp.MustCompile(`([A-Z][a-z].*) ([A-Z]{1}[a-z]{1}\w+)`)
 	matches := MatchTaskRegex.FindAllString(s, -1)
 	data := strings.Join(matches[:], " ")
@@ -410,7 +413,8 @@ func handleData(path string, ch chan<- Quest) {
 }
 
 func handlePosition(path string) Town {
-	s := tesseract(path, false)
+	s := tesseract(path, false, false)
+	fmt.Println(s)
 	MatchPositionRegex := regexp.MustCompile(`(Position \d+\s+\d+\s\d+)`)
 	pos := MatchPositionRegex.FindString(s)
 	var PositionPrecision float64 = 1000.000
@@ -436,7 +440,7 @@ func handlePosition(path string) Town {
 	decoder := gob.NewDecoder(mapData)
 	decoder.Decode(&w)
 
-	os.Remove(path)
+	// os.Remove(path)
 	if !(CurrentPosition.X == 0 && CurrentPosition.Y == 0) {
 		CurrentPos = CurrentPosition
 	}
@@ -483,9 +487,9 @@ func run(ch chan<- Acc) {
 	gocv.BitwiseNot(m, &mInv)
 	gocv.BitwiseAnd(sharp, mInv, &sharp)
 
-	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
-	defer kernel.Close()
-	gocv.Dilate(sharp, &sharp, kernel)
+	// kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Pt(1, 1))
+	// defer kernel.Close()
+	// gocv.Dilate(sharp, &sharp, kernel)
 
 	// contour finding
 	hsv := gocv.NewMatWithSize(1920, 1080, gocv.MatTypeCV8U)
@@ -519,16 +523,22 @@ func run(ch chan<- Acc) {
 	position := gocv.NewMat()
 	defer position.Close()
 
-	const ResizedPositionHeight = 80
+	const ResizedPositionHeight = 50
 	const ResizedPositionWidth = 1800
 
 	roi := image.Rect(TargetWidth, TargetHeight, ResolutionWidth, ResolutionHeight)
 	pos := sharp.Region(roi)
 	black := color.RGBA{B: 0, G: 0, R: 0}
-	padding := 35
+	padding := 15
 	gocv.Resize(pos, &position, image.Pt(ResizedPositionWidth, ResizedPositionHeight), 0, 0, gocv.InterpolationArea)
-	gocv.CopyMakeBorder(position, &position, padding, padding, padding, padding, gocv.BorderConstant, black)
-	gocv.Dilate(sharp, &sharp, kernel)
+	gocv.CopyMakeBorder(position, &position, padding, padding, 0, 3*padding, gocv.BorderConstant, black)
+	gocv.MedianBlur(position, &position, 5)
+	// gocv.GaussianBlur(position, &position, image.Pt(5, 5), 0, 0, gocv.BorderWrap)
+
+	positionKernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(3, 3))
+	defer positionKernel.Close()
+	// gocv.Erode(position, &position, positionKernel)
+
 	f := fmt.Sprintf("%s\\%s.jpeg", FolderPath, "position")
 	gocv.IMWrite(f, position)
 	p := Task{__type: PositionTask, ImagePath: f}
@@ -587,8 +597,13 @@ func run(ch chan<- Acc) {
 					res := cropped.Clone()
 					defer res.Close()
 					gocv.Resize(res, &res, image.Pt(3*rect.Dx(), 3*rect.Dy()), 0, 0, gocv.InterpolationArea)
-					gocv.GaussianBlur(res, &res, image.Pt(13, 13), 0, 0, gocv.BorderWrap)
-					gocv.AddWeighted(res, 2, res, 0, 0, &res)
+					gocv.MedianBlur(res, &res, 5)
+					// gocv.GaussianBlur(res, &res, image.Pt(3, 3), 0, 0, gocv.BorderWrap)
+
+					dataKernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(1, 1))
+					defer dataKernel.Close()
+					gocv.Dilate(res, &res, dataKernel)
+					gocv.Erode(res, &res, positionKernel)
 					cropped = res.Region(image.Rect(0, 100, 3*rect.Dx(), 390))
 					f := fmt.Sprintf("%s\\%d.jpeg", FolderPath, data.Index)
 					data.ImagePath = f
@@ -614,7 +629,7 @@ func run(ch chan<- Acc) {
 				t := TurnIn{Location: CurrentTown, Quest: m}
 				localState.Data = append(localState.Data, t)
 				if len(localState.Data) == count {
-					cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
+					// cleanup(fmt.Sprintf("%s\\*.jpeg", FolderPath))
 					purged := purge(CurrentTown)
 					state.Data = purged
 					state = *saveState(localState)
